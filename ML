@@ -1,0 +1,211 @@
+import pandas as pd
+from sklearn.model_selection import train_test_split, GridSearchCV
+from sklearn.preprocessing import StandardScaler, LabelEncoder
+from sklearn.linear_model import LogisticRegression
+from sklearn.tree import DecisionTreeClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier, AdaBoostClassifier, BaggingClassifier
+from sklearn.svm import SVC
+from sklearn.neighbors import KNeighborsClassifier
+from sklearn.naive_bayes import GaussianNB
+from sklearn.neural_network import MLPClassifier
+from sklearn.cluster import KMeans, AgglomerativeClustering, DBSCAN
+from sklearn.metrics import accuracy_score, f1_score, roc_auc_score, confusion_matrix, silhouette_score
+import matplotlib.pyplot as plt
+import seaborn as sns
+import numpy as np
+import time
+import streamlit as st
+
+# Sidebar navigation
+st.sidebar.title("Navigation")
+st.sidebar.header("Sections")
+sections = ["Classification Models", "Model Performance", "Clustering Models"]
+section = st.sidebar.radio("Choose a section:", sections)
+
+# Dataset loading with more rows
+st.title("Project: Machine Learning Solution")
+st.subheader("Welcome")
+st.write("This is to experiment with  classification and clustering models on bank and wholesale data.")
+
+@st.cache_data
+def load_data():
+    wholesale_data = pd.read_csv("0xthmPath"\whole.csv", nrows=500)
+    bank_data = pd.read_csv("0xthmPath"\bank-full.csv", delimiter=";", nrows=5000)
+    return wholesale_data, bank_data
+
+wholesale_data, bank_data = load_data()
+
+# Encode categorical features
+encoded_values = {}
+for column in bank_data.select_dtypes(include=['object']).columns:
+    le = LabelEncoder()
+    bank_data[column] = le.fit_transform(bank_data[column])
+
+# Bank data for classification
+X_bank = bank_data.drop(['y'], axis=1)
+y_bank = bank_data['y']
+X_train, X_test, y_train, y_test = train_test_split(X_bank, y_bank, test_size=0.2, random_state=42)
+
+# Standardize numeric features for bank data
+scaler = StandardScaler()
+X_train_scaled = scaler.fit_transform(X_train)
+X_test_scaled = scaler.transform(X_test)
+
+# Define classification models
+classification_models = {
+    "Logistic Regression": LogisticRegression(max_iter=200),
+    "Decision Tree": DecisionTreeClassifier(),
+    "Random Forest": RandomForestClassifier(),
+    "Gradient Boosting": GradientBoostingClassifier(),
+    "Support Vector Machine": SVC(probability=True),
+    "K-Nearest Neighbors": KNeighborsClassifier(),
+    "Naive Bayes": GaussianNB(),
+    "AdaBoost": AdaBoostClassifier(),
+    "Bagging Classifier": BaggingClassifier(),
+    "MLP Classifier": MLPClassifier(max_iter=300, early_stopping=True, validation_fraction=0.1)
+}
+
+# Model selection in sidebar
+selected_models = st.sidebar.multiselect("Select Models to Train", list(classification_models.keys()), list(classification_models.keys()))
+
+# Section for Classification Models - Accuracy
+if section == "Classification Models":
+    st.header("Classification Models - Accuracy")
+    st.write("This section shows the accuracy and training time for each selected model.")
+
+    results = {}
+    for name in selected_models:
+        model = classification_models[name]
+        start_time = time.time()
+        model.fit(X_train_scaled, y_train)
+        predictions = model.predict(X_test_scaled)
+        training_time = time.time() - start_time
+        accuracy = accuracy_score(y_test, predictions)
+        f1 = f1_score(y_test, predictions)
+        auc = roc_auc_score(y_test, model.predict_proba(X_test_scaled)[:, 1]) if hasattr(model, "predict_proba") else "N/A"
+        results[name] = (accuracy, f1, auc, training_time)
+
+    st.write(pd.DataFrame(results, index=["Accuracy", "F1 Score", "ROC AUC", "Training Time (s)"]).T)
+
+
+param_grid = {
+    "Logistic Regression": {'C': [0.001, 0.1, 10, 100]},
+    "Random Forest": {'n_estimators': [50, 100, 200], 'max_depth': [5, 10, 15]},
+    "Gradient Boosting": {'learning_rate': [0.01, 0.1, 0.2], 'n_estimators': [50, 100, 150]},
+    "Support Vector Machine": {'C': [0.1, 1, 10], 'kernel': ['linear', 'rbf']}
+}
+
+# Model Performance section
+if section == "Model Performance":
+    st.header("Model Performance on Test Data")
+    st.write("This section shows the performance of the best models after hyperparameter tuning.")
+
+    best_models = {}
+    for name, model in classification_models.items():
+        if name in param_grid:
+            grid_search = GridSearchCV(model, param_grid[name], cv=5, scoring='accuracy')
+            grid_search.fit(X_train_scaled, y_train)
+            best_models[name] = grid_search.best_estimator_
+
+    evaluation_results = []
+    for name, model in best_models.items():
+        start_time = time.time()
+        model.fit(X_train_scaled, y_train)
+        predictions = model.predict(X_test_scaled)
+        elapsed_time = time.time() - start_time
+        accuracy = accuracy_score(y_test, predictions)
+        f1 = f1_score(y_test, predictions)
+        auc = roc_auc_score(y_test, model.predict_proba(X_test_scaled)[:, 1]) if hasattr(model, "predict_proba") else "N/A"
+        evaluation_results.append((name, accuracy, f1, auc, elapsed_time))
+
+        # Plot confusion matrix
+        fig, ax = plt.subplots()
+        sns.heatmap(confusion_matrix(y_test, predictions), annot=True, fmt='d', cmap='Blues', ax=ax)
+        ax.set_title(f'Confusion Matrix - {name}')
+        ax.set_xlabel('Predicted')
+        ax.set_ylabel('Actual')
+        st.pyplot(fig)
+
+    performance_df = pd.DataFrame(evaluation_results, columns=["Model", "Accuracy", "F1 Score", "ROC AUC", "Time (s)"])
+    st.write(performance_df)
+
+# Clustering Models section
+if section == "Clustering Models":
+    st.header("Clustering Models - Wholesale Data")
+    st.write("This section shows clustering results on the wholesale dataset.")
+
+    # Prepare the data
+    X_wholesale = wholesale_data.drop(['Channel', 'Region'], axis=1)
+    scaler_wholesale = StandardScaler()
+    X_wholesale_scaled = scaler_wholesale.fit_transform(X_wholesale)
+
+    # Define clustering models with hyperparameters
+    clustering_models = {
+        "KMeans": KMeans(n_clusters=3, random_state=42),
+        "Agglomerative Clustering": AgglomerativeClustering(n_clusters=3),
+        "DBSCAN": DBSCAN(eps=0.5, min_samples=5)
+    }
+
+    # Dictionary to store the clustering results
+    clustering_results = {}
+
+    # Use the index of the wholesale_data as the Customer ID
+    customer_ids = wholesale_data.index
+
+    # Fit and evaluate models
+    for name, model in clustering_models.items():
+        model.fit(X_wholesale_scaled)
+        labels = model.labels_
+
+        # Store the results with the Customer ID (index)
+        clustering_results[name] = pd.DataFrame({
+            'Customer ID': customer_ids,
+            'Cluster Label': labels
+        })
+
+        # Show the clustering results with Customer ID and Cluster Label
+        st.write(f"Cluster labels for {name}:")
+        st.write(clustering_results[name])
+
+        # For KMeans, show the cluster centers
+        if name == "KMeans":
+            st.write(f"Cluster Centers (KMeans):")
+            st.write(model.cluster_centers_)
+
+        # Visualize the clustering results
+        if name != "DBSCAN":
+            # For KMeans and Agglomerative, create a scatter plot
+            plt.figure(figsize=(8, 6))
+            plt.scatter(X_wholesale_scaled[:, 0], X_wholesale_scaled[:, 1], c=labels, cmap='viridis', marker='o')
+            plt.title(f'{name} Clustering Results')
+            plt.xlabel('Feature 1')
+            plt.ylabel('Feature 2')
+            plt.colorbar(label='Cluster ID')
+            st.pyplot()
+
+        # For DBSCAN, visualize the core samples and noise
+        if name == "DBSCAN":
+            plt.figure(figsize=(8, 6))
+            unique_labels = set(labels)
+            colors = [plt.cm.Spectral(each) for each in np.linspace(0, 1, len(unique_labels))]
+            for k, col in zip(unique_labels, colors):
+                class_member_mask = (labels == k)
+                xy = X_wholesale_scaled[class_member_mask]
+                plt.scatter(xy[:, 0], xy[:, 1], s=10, c=[col], label=f"Cluster {k}")
+            plt.title('DBSCAN Clustering Results')
+            plt.xlabel('Feature 1')
+            plt.ylabel('Feature 2')
+            plt.legend()
+            st.pyplot()
+
+    # Display clustering results with Customer ID in a table
+    clustering_df = pd.concat(clustering_results.values(), keys=clustering_results.keys())
+    st.write("Clustering Results Table:")
+    st.write(clustering_df)
+
+    # Additional explanation for the clusters
+    st.write("""
+    - The numeric labels (`0`, `1`, `2`, etc.) represent the clusters that the data points have been assigned to by the model.
+        - `0` may indicate one group of data points,
+        - `1` may indicate another group, and so on.
+    """)
